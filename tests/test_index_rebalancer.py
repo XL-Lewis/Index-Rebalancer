@@ -92,18 +92,71 @@ class TestIndex:
         raw_data = RawData("tests/fixtures/simple.csv")
         
         # Create old index (1/01/2025) and new index (2/01/2025)
-        old_index = Index(raw_data, "1/01/2025", 80, 100_000)  # Top 80% of stocks
-        new_index = Index(raw_data, "2/01/2025", 80, 100_000)  # Top 80% of stocks
+        old_index = Index(raw_data, "1/01/2025", 0.8, 100_000)  # Top 80% of stocks
+        new_index = Index(raw_data, "2/01/2025", 0.8, 100_000)  # Top 80% of stocks
         
         # Rebalance from old to new
         rebalance_result = old_index.rebalance(new_index)
         
-        # Should return some structure indicating changes
-        assert rebalance_result is not None
+        # Should return a dictionary
+        assert isinstance(rebalance_result, dict)
         
-        # Should have information about stocks to buy/sell
-        assert hasattr(rebalance_result, '__iter__') or isinstance(rebalance_result, dict)
+        # Should have entries for companies
+        assert len(rebalance_result) > 0
+        
+        # All values should be numeric (change in shares)
+        for company, change in rebalance_result.items():
+            assert isinstance(change, (int, float))
 
+    def test_rebalance_no_changes_when_identical(self):
+        """Test that rebalance returns zero changes when indices are identical"""
+        raw_data = RawData("tests/fixtures/simple.csv")
+        
+        # Create two identical indices
+        index1 = Index(raw_data, "1/01/2025", 0.8, 100_000)
+        index2 = Index(raw_data, "1/01/2025", 0.8, 100_000)
+        
+        # Rebalance should show no changes
+        rebalance_result = index1.rebalance(index2)
+        
+        # All changes should be zero (or very close to zero due to floating point)
+        for company, change in rebalance_result.items():
+            assert abs(change) < 1e-10
+
+    def test_rebalance_shows_correct_direction(self):
+        """Test that rebalance correctly shows buy/sell direction"""
+        raw_data = RawData("tests/fixtures/simple.csv")
+        
+        # Create indices with different percentiles to force different compositions
+        old_index = Index(raw_data, "2/01/2025", 0.4, 100_000)  # Top 40% - should get B only
+        new_index = Index(raw_data, "2/01/2025", 0.8, 100_000)  # Top 80% - should get B, A, C, E
+        
+        rebalance_result = old_index.rebalance(new_index)
+        
+        # Should have positive changes for new stocks (buy)
+        # Should have negative changes for sold stocks (sell)
+        # B should have some change (adjustment in holdings)
+        assert 'B' in rebalance_result  # B was in both indices
+        
+        # New stocks should have positive values (buying)
+        new_stocks = set(new_index.data['company']) - set(['B'])  # All except B are new
+        for stock in new_stocks:
+            if stock in rebalance_result:
+                assert rebalance_result[stock] > 0, f"Stock {stock} should be bought (positive change)"
+
+    def test_rebalance_conservation_of_value(self):
+        """Test that total portfolio value is conserved during rebalance"""
+        raw_data = RawData("tests/fixtures/simple.csv")
+        
+        old_index = Index(raw_data, "1/01/2025", 0.8, 100_000)
+        new_index = Index(raw_data, "2/01/2025", 0.8, 100_000)
+        
+        # Perform rebalance
+        old_index.rebalance(new_index)
+        
+        # New value should be approximately the same (100,000)
+        new_value = old_index.value()  # old_index now has new_index data
+        assert new_value == pytest.approx(100_000) 
 
 if __name__ == "__main__":
     pytest.main([__file__])
